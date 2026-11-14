@@ -1,3 +1,4 @@
+import {buildDeepInsights} from './signals.mjs';
 import {sourceFile, filterYear, coverage, periodSeries, groupCounts, classifySender, normalizedName} from './core.mjs';
 
 const label = value => String(value ?? '').trim();
@@ -67,5 +68,5 @@ export function buildInsights(archive, year = 'all') {
   const matches = available ? applications.companies.groups.filter(group=>lookup.has(group.name)).map(group=>({name:group.name,applications:group.count,connections:lookup.get(group.name)})) : [];
   const matchingRecords = matches.reduce((total,match)=>total+match.applications,0);
   const overlap = {available,matches,matchingRecords,denominator:applications.companies.labelled,share:available?ratio(matchingRecords,applications.companies.labelled):null,networkRecords:archive.connections.length};
-  return {year,network,messaging,applications,searches,overlap};
+  return {year,network,messaging,applications,searches,overlap,deep:buildDeepInsights(archive,year)};
 }

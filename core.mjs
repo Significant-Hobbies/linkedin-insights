@@ -76,6 +76,12 @@ const months = new Map(['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 
 export function parseDate(value) {
   if (typeof value !== 'string') return null;
   const text = value.trim();
+  const longDate = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) ([A-Za-z]{3}) (\d{1,2}) (\d{2}):(\d{2}):(\d{2}) UTC (\d{4})$/.exec(text);
+  if (longDate) {
+    if (+longDate[4] > 23 || +longDate[5] > 59 || +longDate[6] > 59) return null;
+    const result = parseDate(`${longDate[3]} ${longDate[2]} ${longDate[7]}`);
+    return result && ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date(result+'T12:00:00Z').getUTCDay()] === longDate[1] ? result : null;
+  }
   let match, year, month, day;
   if ((match = /^(\d{1,2}) ([A-Za-z]{3}) (\d{4})$/.exec(text))) {
     [, day, month, year] = match;
@@ -109,11 +115,20 @@ const schemas = {
   'inferences_about_you.csv': ['Category', 'Type of inference', 'Description', 'Inference'],
   'ad_targeting.csv': [],
   'skills.csv': ['Name'],
+  'saved jobs.csv': ['Saved Date', 'Job Url', 'Job Title', 'Company Name'],
+  'company follows.csv': ['Organization', 'Followed On'],
+  'reactions.csv': ['Date', 'Type', 'Link'],
+  'shares.csv': ['Date', 'ShareLink', 'ShareCommentary', 'SharedUrl', 'MediaUrl', 'Visibility'],
+  'votes.csv': ['Date', 'Link', 'OptionText'],
+  'member_follows.csv': ['Date', 'Status', 'FullName'],
+  'endorsement_received_info.csv': ['Endorsement Date', 'Skill Name', 'Endorser First Name', 'Endorser Last Name', 'Endorser Public Url', 'Endorsement Status'],
+  'endorsement_given_info.csv': ['Endorsement Date', 'Skill Name', 'Endorsee First Name', 'Endorsee Last Name', 'Endorsee Public Url', 'Endorsement Status'],
 };
 
 const clean = value => String(value ?? '').trim();
 const missingDate = value => !clean(value) || /^(N\/A|null)$/i.test(clean(value));
 const basename = name => name.replaceAll('\\', '/').split('/').at(-1).toLowerCase();
+const canonicalSourceName = name => basename(name).replace(/^(reactions|shares|votes|member_follows)_\d+\.csv$/, '$1.csv');
 const nonempty = row => row.some(cell => cell.trim() !== '');
 
 export function buildArchive(files, label = 'LinkedIn export') {
@@ -127,11 +142,11 @@ export function buildArchive(files, label = 'LinkedIn export') {
     total += bytes;
   }
   if (total > 100 * MiB) throw new Error('Export exceeds the 100 MiB total import limit.');
-  const archive = { label, files: [], profile: { name: '', headline: '' }, connections: [], messages: [], jobs: [], searches: [], ads: [], learning: [], invitations: [], inferences: [], targeting: [], skills: [] };
+  const archive = { label, files: [], profile: { name: '', headline: '' }, connections: [], messages: [], jobs: [], searches: [], ads: [], learning: [], invitations: [], inferences: [], targeting: [], skills: [], savedJobs: [], companyFollows: [], reactions: [], shares: [], votes: [], memberFollows: [], endorsementsReceived: [], endorsementsGiven: [] };
   const seen = new Set();
   let supported = 0;
   for (const file of files) {
-    const key = basename(file.name);
+    const key = canonicalSourceName(file.name);
     const known = Object.hasOwn(schemas, key);
     if (known && seen.has(key)) throw new Error(`Duplicate supported source ${file.name}. Import only one copy of each source.`);
     if (known) { seen.add(key); supported++; }
@@ -213,7 +228,7 @@ export function buildArchive(files, label = 'LinkedIn export') {
           const completion = value('Content Completed At (if completed)');
           const completedDate = parseDate(completion);
           if (!completedDate && !missingDate(completion)) invalidCompletion++;
-          archive.learning.push({ title: value('Content Title'), type: value('Content Type'), date: date(value('Content Last Watched Date (if viewed)')), completed: Boolean(completedDate) });
+          archive.learning.push({ title: value('Content Title'), type: value('Content Type'), date: date(value('Content Last Watched Date (if viewed)')), completed: Boolean(completedDate), completedDate });
           break;
         }
         case 'invitations.csv': archive.invitations.push({ from: value('From'), to: value('To'), direction: value('Direction'), date: date(value('Sent At')) }); break;
@@ -226,6 +241,18 @@ export function buildArchive(files, label = 'LinkedIn export') {
             if (row[index] !== '') item.values.push(row[index]);
           });
           break;
+        case 'saved jobs.csv': archive.savedJobs.push({ company: value('Company Name'), title: value('Job Title'), url: clean(value('Job Url')), date: date(value('Saved Date')) }); break;
+        case 'company follows.csv': archive.companyFollows.push({ company: value('Organization'), date: date(value('Followed On')) }); break;
+        case 'reactions.csv': archive.reactions.push({ type: value('Type'), url: value('Link'), date: date(value('Date')) }); break;
+        case 'shares.csv': archive.shares.push({ url: value('ShareLink'), commentary: value('ShareCommentary'), sharedUrl: value('SharedUrl'), mediaUrl: value('MediaUrl'), visibility: value('Visibility'), date: date(value('Date')) }); break;
+        case 'votes.csv': archive.votes.push({ url: value('Link'), option: value('OptionText'), date: date(value('Date')) }); break;
+        case 'member_follows.csv': archive.memberFollows.push({ name: value('FullName'), status: value('Status'), date: date(value('Date')) }); break;
+        case 'endorsement_received_info.csv':
+        case 'endorsement_given_info.csv': {
+          const received = key === 'endorsement_received_info.csv', prefix = received ? 'Endorser' : 'Endorsee';
+          archive[received ? 'endorsementsReceived' : 'endorsementsGiven'].push({ skill: value('Skill Name'), name: [clean(value(prefix+' First Name')),clean(value(prefix+' Last Name'))].filter(Boolean).join(' '), url: value(prefix+' Public Url'), status: value('Endorsement Status'), date: date(value('Endorsement Date')) });
+          break;
+        }
         case 'skills.csv': if (clean(value('Name'))) archive.skills.push(value('Name')); break;
       }
     }
@@ -308,9 +335,12 @@ export function conversationGroups(messages, ownName) {
     .sort((a, b) => b.count - a.count || (b.lastDate || '').localeCompare(a.lastDate || '') || a.id.localeCompare(b.id));
 }
 
-export const sourceNames = {connections:'Connections.csv',messages:'messages.csv',jobs:'Job Applications.csv',searches:'SearchQueries.csv',ads:'Ads Clicked.csv',learning:'Learning.csv',invitations:'Invitations.csv',inferences:'Inferences_about_you.csv',targeting:'Ad_Targeting.csv',skills:'Skills.csv'};
-export const sourceFile = (archive, key) => archive.files.find(file => basename(file.name) === sourceNames[key]?.toLowerCase());
+export const sourceNames = {connections:'Connections.csv',messages:'messages.csv',jobs:'Job Applications.csv',searches:'SearchQueries.csv',ads:'Ads Clicked.csv',learning:'Learning.csv',invitations:'Invitations.csv',inferences:'Inferences_about_you.csv',targeting:'Ad_Targeting.csv',skills:'Skills.csv',savedJobs:'Saved Jobs.csv',companyFollows:'Company Follows.csv',reactions:'Reactions.csv',shares:'Shares.csv',votes:'Votes.csv',memberFollows:'Member_Follows.csv',endorsementsReceived:'Endorsement_Received_Info.csv',endorsementsGiven:'Endorsement_Given_Info.csv'};
+export const sourceFile = (archive, key) => archive.files.find(file => canonicalSourceName(file.name) === sourceNames[key]?.toLowerCase());
 export function classifySender(name, ownName) {
   const sender = normalizedName(name), own = normalizedName(ownName);
   return !sender ? 'unnamed' : !own ? 'unattributed' : sender === own ? 'owner' : 'other';
 }
+
+export const datedSourceKeys = ['connections','messages','jobs','searches','ads','learning','invitations','savedJobs','companyFollows','reactions','shares','votes','memberFollows','endorsementsReceived','endorsementsGiven'];
+export const archiveYears = archive => [...new Set(datedSourceKeys.flatMap(key=>(archive?.[key]||[]).flatMap(row=>[row.date,key==='learning'?row.completedDate:null].filter(Boolean).map(date=>date.slice(0,4)))))].sort().reverse();
