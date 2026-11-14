@@ -32,6 +32,10 @@ The initial page downloads same-origin application assets. After import, analysi
 
 ## Deployment
 
-`pnpm deploy` verifies clean, synchronized main and successful CI before publishing static `dist/` assets to the `linkedin-insights` Cloudflare Pages project. The custom domain is `linkedin.significanthobbies.com`. There are no Pages Functions or storage bindings.
+`pnpm deploy` requires clean, synchronized main and successful exact-commit CI. It downloads that run’s release artifact, verifies the source manifest and every asset hash, then publishes the prebuilt artifact with the pinned Cloudflare CLI. No local application rebuild is published. It runs folder-import and privacy checks against the live custom domain after deployment.
+
+The assets-only Worker is `linkedin-insights`, at `linkedin.significanthobbies.com`. There are no handlers or storage bindings. Existing Wrangler login can supply credentials to the Cloudflare CLI in memory; credentials are never written to the release.
+
+For rollback, inspect prior versions using `cf workers versions list --worker linkedin-insights`, then route 100% traffic to a verified prior version using `cf workers deployments create --worker linkedin-insights --strategy percentage --versions '[{"version_id":"PREVIOUS_VERSION_ID","percentage":100}]'`. Domain and DNS configuration are managed by the custom-domain binding.
 
 The private local prototype and its export are not part of this repository or release.

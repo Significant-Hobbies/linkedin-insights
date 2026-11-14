@@ -39,8 +39,8 @@ try{
   assert.equal(await page.locator('textarea[name=q]').count(),1);
   assert.doesNotMatch(await page.locator('body').innerText(),/Sarthak|6,332|3,073|Complete_LinkedInDataExport/);
   for(const width of [1440,768,390]){await page.setViewportSize({width,height:1000});await page.screenshot({path:path.join(out,`start-${width}.png`),fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);layouts.push({view:'start',width,overflow:false})}
-  await page.locator('input[webkitdirectory]').setInputFiles(fixture);
-  await page.getByRole('heading',{name:'Your archive, in perspective',exact:true}).waitFor();await page.evaluate(()=>document.fonts.ready);loaded=true;
+  loaded=true;await page.locator('input[webkitdirectory]').setInputFiles(fixture);
+  await page.getByRole('heading',{name:'Your archive, in perspective',exact:true}).waitFor();await page.evaluate(()=>document.fonts.ready);
   assert.equal(await page.locator('.public-footer').count(),0);assert.equal(await page.locator('textarea[name=q]').count(),0);
   await choose('network');assert.match(await page.locator('.stats').innerText(),/3/);
   await page.getByRole('searchbox',{name:'Search companies'}).fill('Example');assert.match(await page.locator('tbody').innerText(),/Example Labs\s+2/);
@@ -48,9 +48,10 @@ try{
   await page.getByRole('button',{name:'People',exact:true}).click();assert.equal(await page.locator('a[href^="javascript:"]').count(),0);
   await page.getByLabel('Time period').selectOption('all');await choose('messages');
   assert.match(await page.locator('.stats').innerText(),/3/);
-  await page.locator('tbody tr').first().getByRole('button').click();assert.equal(await page.getByRole('dialog').isVisible(),true);assert.equal(await page.locator('.message-thread img').count(),0);assert.match(await page.locator('.message-thread').innerText(),/<img src=x onerror=alert\(1\)>/);await page.keyboard.press('Escape');
+  await page.locator('tbody tr').first().getByRole('button').click();assert.equal(await page.getByRole('dialog').isVisible(),true);assert.equal(await page.getByRole('dialog').locator('h2').innerText(),'Alex Example');assert.equal(await page.locator('.message-thread img').count(),0);assert.match(await page.locator('.message-thread').innerText(),/<img src=x onerror=alert\(1\)>/);await page.keyboard.press('Escape');
   for(const width of [1440,768,390]){await page.setViewportSize({width,height:1000});for(const view of ['network','messages','jobs','activity','profile','sources']){await choose(view);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${view} at ${width}`);layouts.push({view,width,overflow:false});if(['network','sources'].includes(view))await page.screenshot({path:path.join(out,`${view}-${width}.png`),fullPage:true})}}
-  await page.locator('input[accept]').setInputFiles({name:'Skills.csv',mimeType:'text/csv',buffer:Buffer.from('Name\n"unterminated')});await page.getByRole('alert').waitFor();assert.match(await page.getByRole('alert').innerText(),/Unclosed/);assert.equal(await page.locator('.public-footer').count(),0);
+  await choose('network');const preservedStats=await page.locator('.stats').innerText();await choose('sources');const preservedSources=await page.locator('.stats').innerText();
+  await page.locator('input[accept]').setInputFiles({name:'Skills.csv',mimeType:'text/csv',buffer:Buffer.from('Name\n"unterminated')});await page.getByRole('alert').waitFor();assert.match(await page.getByRole('alert').innerText(),/Unclosed/);assert.equal(await page.locator('.public-footer').count(),0);assert.equal(await page.locator('.stats').innerText(),preservedSources);await choose('network');assert.equal(await page.locator('.stats').innerText(),preservedStats);
   assert.equal(await page.evaluate(()=>localStorage.length),0);
   assert.equal(await page.evaluate(async()=>('databases'in indexedDB?(await indexedDB.databases()).length:0)),0);
   assert.deepEqual(requestsAfterImport,[]);

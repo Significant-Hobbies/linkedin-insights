@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readFile,mkdir,writeFile,access,mkdtemp,rename} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {verifyReleaseArtifact} from './scripts/release-artifact.mjs';
 test('public build has no export input path and its initial application state is empty',async()=>{
   const [app,build]=await Promise.all(['app.jsx','build.mjs'].map(f=>readFile(f,'utf8')));
   assert.match(app,/useState\(null\)/);
@@ -9,4 +12,34 @@ test('public build has no export input path and its initial application state is
   assert.match(build,/connect-src 'none'/);
   assert.match(build,/script-src 'self'/);
   assert.match(app,/generation\.current\+\+;setArchive\(null\)/);
+});
+test('release artifact rejects source mismatch, changed bytes, and unlisted stale files',async()=>{
+  await mkdir('.artifacts',{recursive:true});
+  const out=await mkdtemp('.artifacts/artifact-test-'),assets=out+'/workers/default/assets';
+  await mkdir(assets,{recursive:true});
+  await writeFile(out+'/config.json',JSON.stringify({accountId:'7d048325699a5acddb44d3be31cf6ba9',buildContext:{isPreview:false}}));
+  await writeFile(out+'/workers/default/worker.config.json',JSON.stringify({name:'linkedin-insights',compatibilityDate:'2026-11-14',assets:{htmlHandling:'auto-trailing-slash',notFoundHandling:'404-page'},domains:['linkedin.significanthobbies.com'],observability:{enabled:false},workersDev:false}));
+  const files=[{path:'app-0123456789ab.js',body:'console.log("synthetic");'},{path:'app-0123456789ab.css',body:'body{margin:0}'}];
+  for(const f of files)await writeFile(assets+'/'+f.path,f.body);
+  await writeFile(assets+'/release-manifest.json',JSON.stringify({source:'synthetic-sha',files:files.map(f=>({path:f.path,sha256:createHash('sha256').update(f.body).digest('hex')}))}));
+  assert.equal((await verifyReleaseArtifact(out,'synthetic-sha')).files,2);
+  await assert.rejects(verifyReleaseArtifact(out,'different-source'),/source must match/);
+  await writeFile(assets+'/'+files[0].path,'changed bytes');
+  await assert.rejects(verifyReleaseArtifact(out,'synthetic-sha'),/Asset changed/);
+  await writeFile(assets+'/'+files[0].path,files[0].body);
+  await writeFile(assets+'/stale-export.csv','synthetic private record');
+  await assert.rejects(verifyReleaseArtifact(out,'synthetic-sha'),/Only the verified static release/);
+  await rename(assets+'/stale-export.csv',out+'/rejected-stale-export.csv');
+});
+test('a fresh build excludes stale output and inventories only current release assets',async()=>{
+  await mkdir('dist',{recursive:true});
+  await writeFile('dist/stale-synthetic-export.txt','SYNTHETIC_UNPUBLISHABLE_SENTINEL');
+  execFileSync(process.execPath,['build.mjs']);
+  await assert.rejects(access('dist/stale-synthetic-export.txt'));
+  const manifest=JSON.parse(await readFile('dist/release-manifest.json','utf8'));
+  assert.equal(manifest.source,execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim());
+  assert.equal(manifest.files.filter(f=>/^app-.*\.js$/.test(f.path)).length,1);
+  assert.equal(manifest.files.filter(f=>/^app-.*\.css$/.test(f.path)).length,1);
+  assert.ok(manifest.files.every(f=>/^[a-f0-9]{64}$/.test(f.sha256)));
+  assert.ok(!manifest.files.some(f=>f.path.includes('stale-synthetic')));
 });

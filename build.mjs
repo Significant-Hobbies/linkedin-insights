@@ -1,10 +1,11 @@
 import {build} from 'esbuild';
 import {compile} from '@tailwindcss/node';
 import {createRequire} from 'node:module';
-import {readFile,writeFile,mkdir,copyFile} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,copyFile,rename,mkdtemp,readdir} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 
@@ -13,8 +14,10 @@ const require=createRequire(import.meta.url);
 const out=path.join(root,'dist');
 const ui=path.dirname(path.dirname(require.resolve('@saas-maker/ui/styles.css')));
 const digest=value=>createHash('sha256').update(value).digest('hex').slice(0,12);
-await mkdir(out,{recursive:true});
 await mkdir(path.join(root,'.artifacts'),{recursive:true});
+// Preserve any previous output outside the publish directory, including unknown local files.
+try{const previous=await mkdtemp(path.join(root,'.artifacts/previous-build-'));await rename(out,path.join(previous,'dist'))}catch(error){if(error.code!=='ENOENT')throw error}
+await mkdir(out,{recursive:true});
 const bundled=await build({entryPoints:['app.jsx'],absWorkingDir:root,bundle:true,minify:true,format:'iife',jsx:'automatic',write:false,metafile:true,legalComments:'none'});
 const js=bundled.outputFiles[0].text;
 const jsName=`app-${digest(js)}.js`;
@@ -57,4 +60,7 @@ await writeFile(path.join(out,'api/ai'),JSON.stringify({name:'LinkedIn Archive',
 await writeFile(path.join(out,'index.md'),`# LinkedIn Archive\n\n${description}\n\nChoose an extracted LinkedIn export folder or CSV files. Inspect network growth, company and role breakdowns, conversations, applications, searches, learning and targeting labels. Data remains in browser memory and is cleared on refresh. Missing records do not establish inactivity.\n\n[Open tool](${canonical}) · [Guide](${canonical}/guide/) · [Privacy](${canonical}/privacy/)\n`);
 await copyFile(path.join(root,'public/favicon.svg'),path.join(out,'favicon.svg'));
 await copyFile(path.join(root,'public/social.svg'),path.join(out,'social.svg'));
+const files=[];async function inventory(dir,prefix=''){for(const entry of await readdir(dir,{withFileTypes:true})){const name=prefix+entry.name;if(entry.isDirectory())await inventory(path.join(dir,entry.name),name+'/');else files.push({path:name,sha256:createHash('sha256').update(await readFile(path.join(dir,entry.name))).digest('hex')})}}
+await inventory(out);
+await writeFile(path.join(out,'release-manifest.json'),JSON.stringify({source:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),files:files.sort((a,b)=>a.path.localeCompare(b.path))},null,2));
 console.log(`Built public empty-start release: ${out}`);

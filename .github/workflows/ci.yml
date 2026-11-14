@@ -22,6 +22,12 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:browser
       - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.sha }}
+          path: .cloudflare/output/v0/
+          include-hidden-files: true
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: browser-proof

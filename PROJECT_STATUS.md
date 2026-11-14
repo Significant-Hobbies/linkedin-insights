@@ -15,7 +15,7 @@ LinkedIn Archive helps people explore patterns in their own LinkedIn data export
 ## Dependencies
 
 - React and the pinned Fleet UI library, built with esbuild and Tailwind.
-- Cloudflare Pages serves static assets. Personal CSV parsing runs only in the browser.
+- Cloudflare Workers Static Assets serves static assets. Personal CSV parsing runs only in the browser.
 - No database, paid API, AI provider, secret, or user account is needed by the app.
 
 ## Timeline
@@ -36,6 +36,6 @@ LinkedIn Archive helps people explore patterns in their own LinkedIn data export
 
 ## Todo / Planned / Deferred / Blocked
 
-- Release preparation: CI, independent privacy/release review, domain binding and live import verification.
+- Release preparation: exact-source CI artifact publishing, independent privacy/release review, domain binding and live import verification.
 - Imported data intentionally lasts only in the current tab. Refreshing starts empty.
 - Missing export data is not treated as complete historical inactivity.
