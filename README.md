@@ -24,6 +24,8 @@ pnpm test:browser
 
 Browser tests generate synthetic CSV fixtures. No private export is required.
 
+`check` runs source syntax checks, regression tests, the browser bundle build and the hosting build. JavaScript is not typechecked; the former `checkJs: false` TypeScript step was removed because it did not check application types. Builds preserve old output in ignored `.artifacts/previous-build-*` and `previous-hosting-*` recovery folders. Inspect those folders and move unneeded task-owned copies to Trash when finished.
+
 ## Privacy boundary
 
 The site ships with no archive. File selection reads CSVs using browser File APIs, and the parser returns only supported fields. Imports remain in memory. Clearing the archive or refreshing removes that tab's analysis. No upload endpoint, analytics, replay, remote script, or browser storage is used.
@@ -32,7 +34,7 @@ The initial page downloads same-origin application assets. After import, analysi
 
 ## Deployment
 
-`pnpm deploy` requires clean, synchronized main and successful exact-commit CI. It downloads that run’s release artifact, verifies the source manifest and every asset hash, then publishes the prebuilt artifact with the pinned Cloudflare CLI. No local application rebuild is published. It runs folder-import and privacy checks against the live custom domain after deployment.
+`pnpm run deploy` requires clean, synchronized main and successful exact-commit CI. It downloads that run’s release artifact, verifies the source manifest and every asset hash, then publishes the prebuilt artifact with the pinned Cloudflare CLI. No local application rebuild is published. It runs folder-import and privacy checks against the live custom domain after deployment.
 
 The assets-only Worker is `linkedin-insights`, at `linkedin.significanthobbies.com`. There are no handlers or storage bindings. Existing Wrangler login can supply credentials to the Cloudflare CLI in memory; credentials are never written to the release.
 
