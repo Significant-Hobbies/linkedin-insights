@@ -1,0 +1,10 @@
+import {readdir,readFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+import assert from 'node:assert/strict';
+const files=await readdir('.');
+for(const file of files.filter(f=>f.endsWith('.mjs')))execFileSync(process.execPath,['--check',file]);
+const app=await readFile('app.jsx','utf8');
+assert.match(app,/useState\(null\)/,'Public application must start empty.');
+assert.doesNotMatch(app,/archive\.private|from\s+['"][^'"]*\.csv|Complete_LinkedInDataExport|\/Users\//,'No private seed or machine-local data path in the app.');
+assert.doesNotMatch(app,/localStorage|indexedDB|sendBeacon|XMLHttpRequest|\bfetch\s*\(/,'Archive view may not persist or transmit imports.');
+console.log('Source syntax and public privacy boundary checks passed.');

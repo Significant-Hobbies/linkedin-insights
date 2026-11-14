@@ -1,0 +1,36 @@
+{
+  "name": "linkedin-archive",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.2",
+  "engines": {"node": ">=22.18.0"},
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "build": "node build.mjs",
+    "lint": "node scripts/check-source.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test core.test.mjs release.test.mjs",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "test:browser": "node verify.mjs",
+    "deploy": "node scripts/deploy.mjs"
+  },
+  "dependencies": {
+    "@saas-maker/ui": "github:sass-maker/ui-library#2f5a9c448fddf02743bd30df4b0575818c777fa1&path:/packages/ui",
+    "lucide-react": "1.48.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@tailwindcss/node": "4.3.3",
+    "@types/node": "25.9.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "0.28.2",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "wrangler": "4.162.0"
+  },
+  "pnpm": {"onlyBuiltDependencies": ["esbuild"]}
+}
