@@ -140,7 +140,7 @@ function unavailableSource(file, issue) {
   } catch {
     try { headers = csvRecords(file.text.split(/\r\n|\n|\r/, 1)[0])[0]?.cells ?? []; } catch {}
   }
-  return {name:file.name,headers,count,status:'unsupported',analysisUnavailable:true,issues:[`${issue} This source was not analyzed; other usable sources remain available.`]};
+  return {name:file.name,headers,count,status:'unsupported',analysisUnavailable:true,issues:[`${issue} This source was not analyzed.`]};
 }
 
 export function buildArchive(files, label = 'LinkedIn export') {
