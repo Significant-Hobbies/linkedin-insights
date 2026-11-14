@@ -275,14 +275,13 @@ export function coverage(rows) {
   return { first: dates[0] ?? null, last: dates.at(-1) ?? null, undated: rows.length - dates.length };
 }
 
-const normalizedName = name => clean(name).normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
+export const normalizedName = name => clean(name).normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
 
 export function conversationGroups(messages, ownName) {
   const groups = new Map();
-  const ids = new Set(messages.map(message => message.id).filter(Boolean));
-  const own = normalizedName(ownName);
+  const ids = new Set(messages.map(message => message.id).filter(id => clean(id)));
   messages.forEach((message, index) => {
-    let id = message.id;
+    let id = clean(message.id) ? message.id : null;
     if (!id) {
       id = `missing-conversation-${index + 1}`;
       while (ids.has(id)) id += '-unknown';
@@ -290,13 +289,15 @@ export function conversationGroups(messages, ownName) {
     }
     let group = groups.get(id);
     if (!group) {
-      group = { id, title: message.title || '', participants: [], count: 0, sent: 0, received: 0, lastDate: null, messages: [] };
+      group = { id, title: message.title || '', participants: [], knownId: Boolean(clean(message.id)), count: 0, sent: 0, received: 0, unnamed: 0, lastDate: null, messages: [] };
       groups.set(id, group);
     }
     if (!group.title && message.title) group.title = message.title;
     group.count++;
-    if (own && normalizedName(message.from) === own) group.sent++;
-    else group.received++;
+    const sender = classifySender(message.from, ownName);
+    if (sender === 'owner') group.sent++;
+    else if (sender === 'other') group.received++;
+    else if (sender === 'unnamed') group.unnamed++;
     for (const name of [message.from, ...String(message.to || '').split(/[,;]/)].map(clean).filter(Boolean)) {
       if (!group.participants.some(existing => normalizedName(existing) === normalizedName(name))) group.participants.push(name);
     }
@@ -305,4 +306,11 @@ export function conversationGroups(messages, ownName) {
   });
   return [...groups.values()].map(group => ({ ...group, messages: group.messages.toSorted((a, b) => (a.timestamp ?? a.date ?? '9999').localeCompare(b.timestamp ?? b.date ?? '9999')) }))
     .sort((a, b) => b.count - a.count || (b.lastDate || '').localeCompare(a.lastDate || '') || a.id.localeCompare(b.id));
+}
+
+export const sourceNames = {connections:'Connections.csv',messages:'messages.csv',jobs:'Job Applications.csv',searches:'SearchQueries.csv',ads:'Ads Clicked.csv',learning:'Learning.csv',invitations:'Invitations.csv',inferences:'Inferences_about_you.csv',targeting:'Ad_Targeting.csv',skills:'Skills.csv'};
+export const sourceFile = (archive, key) => archive.files.find(file => basename(file.name) === sourceNames[key]?.toLowerCase());
+export function classifySender(name, ownName) {
+  const sender = normalizedName(name), own = normalizedName(ownName);
+  return !sender ? 'unnamed' : !own ? 'unattributed' : sender === own ? 'owner' : 'other';
 }
