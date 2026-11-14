@@ -11,7 +11,7 @@
     "dev": "node scripts/serve.mjs",
     "build": "node build.mjs",
     "lint": "node scripts/check-source.mjs",
-    "test": "node --test core.test.mjs release.test.mjs",
+    "test": "node --test core.test.mjs insights.test.mjs release.test.mjs",
     "check": "pnpm lint && pnpm test && pnpm build && pnpm build:hosting",
     "test:browser": "node verify.mjs",
     "deploy": "node scripts/deploy.mjs",
