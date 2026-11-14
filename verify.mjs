@@ -37,7 +37,7 @@ try{
   assert.equal(await page.locator('input[webkitdirectory]').count(),1);
   assert.equal(await page.locator('.public-footer').count(),1);
   assert.equal(await page.locator('textarea[name=q]').count(),1);
-  assert.doesNotMatch(await page.locator('body').innerText(),/Sarthak|6,332|3,073|Complete_LinkedInDataExport/);
+  assert.doesNotMatch(await page.locator('body').innerText(),/Avery Example|Example Labs|Sample profile/);
   for(const width of [1440,768,390]){await page.setViewportSize({width,height:1000});await page.screenshot({path:path.join(out,`start-${width}.png`),fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);layouts.push({view:'start',width,overflow:false})}
   loaded=true;await page.locator('input[webkitdirectory]').setInputFiles(fixture);
   await page.getByRole('heading',{name:'Your archive, in perspective',exact:true}).waitFor();await page.evaluate(()=>document.fonts.ready);
