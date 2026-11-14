@@ -28,7 +28,7 @@ const browser=await chromium.launch({headless:true,...(process.env.CI?{}:{channe
 const context=await browser.newContext();const page=await context.newPage();
 const errors=[],requestsAfterImport=[];let loaded=false;
 page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(loaded)requestsAfterImport.push(r.url())});
-async function choose(section){if(await page.locator('#mobile-section').isVisible())await page.locator('#mobile-section').selectOption(section);else await page.locator('nav[aria-label="Archive sections"] button').filter({hasText:{overview:'Overview',network:'Network',messages:'Messages',jobs:'Applications',activity:'Activity',profile:'Profile & targeting',sources:'Data sources'}[section]}).click()}
+async function choose(section){if(await page.locator('#mobile-section').isVisible())await page.locator('#mobile-section').selectOption(section);else await page.locator('nav[aria-label="Archive sections"] button').filter({hasText:{overview:'Insights',network:'Network',messages:'Messages',jobs:'Applications',activity:'Activity',profile:'Profile & targeting',sources:'Data sources'}[section]}).click()}
 const layouts=[];
 try{
   await page.goto(base);await page.evaluate(()=>document.fonts.ready);
@@ -40,8 +40,8 @@ try{
   assert.doesNotMatch(await page.locator('body').innerText(),/Avery Example|Example Labs|Sample profile/);
   for(const width of [1440,768,390]){await page.setViewportSize({width,height:1000});await page.screenshot({path:path.join(out,`start-${width}.png`),fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);layouts.push({view:'start',width,overflow:false})}
   loaded=true;await page.locator('input[webkitdirectory]').setInputFiles(fixture);
-  await page.getByRole('heading',{name:'Your archive, in perspective',exact:true}).waitFor();await page.evaluate(()=>document.fonts.ready);
-  assert.equal(await page.locator('.public-footer').count(),0);assert.equal(await page.locator('textarea[name=q]').count(),0);
+  await page.getByRole('heading',{name:'Your LinkedIn insights',exact:true}).waitFor();await page.evaluate(()=>document.fonts.ready);
+  assert.equal(await page.locator('.public-footer').count(),0);assert.equal(await page.locator('textarea[name=q]').count(),0);assert.match(await page.locator('.findings').innerText(),/2024/);assert.match(await page.locator('.findings').innerText(),/66\.7%/);assert.match(await page.locator('.findings').innerText(),/Example Labs/);
   await choose('network');assert.match(await page.locator('.stats').innerText(),/3/);
   await page.getByRole('searchbox',{name:'Search companies'}).fill('Example');assert.match(await page.locator('tbody').innerText(),/Example Labs\s+2/);
   await page.getByLabel('Time period').selectOption('2024');assert.match(await page.locator('.stats').innerText(),/2/);
@@ -49,7 +49,18 @@ try{
   await page.getByLabel('Time period').selectOption('all');await choose('messages');
   assert.match(await page.locator('.stats').innerText(),/3/);
   await page.locator('tbody tr').first().getByRole('button').click();assert.equal(await page.getByRole('dialog').isVisible(),true);assert.equal(await page.getByRole('dialog').locator('h2').innerText(),'Alex Example');assert.equal(await page.locator('.message-thread img').count(),0);assert.match(await page.locator('.message-thread').innerText(),/<img src=x onerror=alert\(1\)>/);await page.keyboard.press('Escape');
-  for(const width of [1440,768,390]){await page.setViewportSize({width,height:1000});for(const view of ['network','messages','jobs','activity','profile','sources']){await choose(view);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${view} at ${width}`);layouts.push({view,width,overflow:false});if(['network','sources'].includes(view))await page.screenshot({path:path.join(out,`${view}-${width}.png`),fullPage:true})}}
+  for(const width of [1440,768,390]){await page.setViewportSize({width,height:1000});for(const view of ['overview','network','messages','jobs','activity','profile','sources']){await choose(view);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`${view} at ${width}`);layouts.push({view,width,overflow:false});if(['overview','network','sources'].includes(view))await page.screenshot({path:path.join(out,`${view}-${width}.png`),fullPage:true})}}
+  await page.setViewportSize({width:1440,height:600});await choose('sources');
+  const beforeScroll=await page.locator('.sidebar').boundingBox();const headingBefore=await page.locator('.page-heading').boundingBox();
+  await page.evaluate(()=>window.scrollTo({top:450,behavior:'instant'}));
+  const afterScroll=await page.locator('.sidebar').boundingBox();const headingAfter=await page.locator('.page-heading').boundingBox();
+  assert.ok(await page.evaluate(()=>scrollY>100),'Page content must actually scroll.');
+  assert.ok(Math.abs(beforeScroll.y-afterScroll.y)<1,'Sidebar must stay pinned while page content scrolls.');
+  assert.ok(headingBefore.y-headingAfter.y>100,'Content must scroll independently of the sidebar.');
+  assert.ok(afterScroll.y+afterScroll.height<=601,'Sidebar must fit the viewport.');
+  assert.equal((await page.locator('.app-header').boundingBox()).y,0);
+  await page.screenshot({path:path.join(out,'sidebar-scrolled.png')});
+  await page.setViewportSize({width:1440,height:1000});
   await choose('network');const preservedStats=await page.locator('.stats').innerText();await choose('sources');const preservedSources=await page.locator('.stats').innerText();
   await page.locator('input[accept]').setInputFiles({name:'Skills.csv',mimeType:'text/csv',buffer:Buffer.from('Name\n"unterminated')});await page.getByRole('alert').waitFor();assert.match(await page.getByRole('alert').innerText(),/Unclosed/);assert.equal(await page.locator('.public-footer').count(),0);assert.equal(await page.locator('.stats').innerText(),preservedSources);await choose('network');assert.equal(await page.locator('.stats').innerText(),preservedStats);
   assert.equal(await page.evaluate(()=>localStorage.length),0);
@@ -59,6 +70,6 @@ try{
   await page.reload();assert.equal(await page.locator('.stats').count(),0);assert.equal(await page.getByRole('button',{name:'Open export folder',exact:true}).count(),1);
   for(const route of ['/privacy/','/guide/']){const response=await page.goto(base+route);assert.equal(response.status(),200);assert.ok(await page.locator('h1').innerText())}
   assert.deepEqual(errors,[]);
-  await writeFile(path.join(out,'verification.json'),JSON.stringify({base,layouts,folderImport:true,failedImportPreservesData:true,clearAndReloadStartEmpty:true,storedRecords:0,requestsAfterImport,errors},null,2));
-  console.log(JSON.stringify({base,layouts:layouts.length,folderImport:true,requestsAfterImport:0,storedRecords:0,errors:0}));
+  await writeFile(path.join(out,'verification.json'),JSON.stringify({base,layouts,sidebarPinned:true,insightsLanding:true,folderImport:true,failedImportPreservesData:true,clearAndReloadStartEmpty:true,storedRecords:0,requestsAfterImport,errors},null,2));
+  console.log(JSON.stringify({base,layouts:layouts.length,sidebarPinned:true,insightsLanding:true,folderImport:true,requestsAfterImport:0,storedRecords:0,errors:0}));
 }finally{await browser.close();server?.kill('SIGTERM')}
