@@ -130,6 +130,18 @@ const missingDate = value => !clean(value) || /^(N\/A|null)$/i.test(clean(value)
 const basename = name => name.replaceAll('\\', '/').split('/').at(-1).toLowerCase();
 const canonicalSourceName = name => basename(name).replace(/^(reactions|shares|votes|member_follows)_\d+\.csv$/, '$1.csv');
 const nonempty = row => row.some(cell => cell.trim() !== '');
+const optionalSources = new Set(['saved jobs.csv','company follows.csv','reactions.csv','shares.csv','votes.csv','member_follows.csv','endorsement_received_info.csv','endorsement_given_info.csv']);
+function unavailableSource(file, issue) {
+  let headers = [], count = null;
+  try {
+    const records = csvRecords(file.text).filter(record => nonempty(record.cells));
+    headers = records.shift()?.cells ?? [];
+    count = records.length;
+  } catch {
+    try { headers = csvRecords(file.text.split(/\r\n|\n|\r/, 1)[0])[0]?.cells ?? []; } catch {}
+  }
+  return {name:file.name,headers,count,status:'unsupported',analysisUnavailable:true,issues:[`${issue} This source was not analyzed; other usable sources remain available.`]};
+}
 
 export function buildArchive(files, label = 'LinkedIn export') {
   if (!Array.isArray(files)) throw new Error('Select CSV files from a LinkedIn export folder.');
@@ -142,64 +154,80 @@ export function buildArchive(files, label = 'LinkedIn export') {
     total += bytes;
   }
   if (total > 100 * MiB) throw new Error('Export exceeds the 100 MiB total import limit.');
+  const sourceCounts = new Map();
+  for (const file of files) {
+    const key = canonicalSourceName(file.name);
+    sourceCounts.set(key,(sourceCounts.get(key)||0)+1);
+  }
   const archive = { label, files: [], profile: { name: '', headline: '' }, connections: [], messages: [], jobs: [], searches: [], ads: [], learning: [], invitations: [], inferences: [], targeting: [], skills: [], savedJobs: [], companyFollows: [], reactions: [], shares: [], votes: [], memberFollows: [], endorsementsReceived: [], endorsementsGiven: [] };
   const seen = new Set();
   let supported = 0;
   for (const file of files) {
     const key = canonicalSourceName(file.name);
     const known = Object.hasOwn(schemas, key);
+    if (optionalSources.has(key) && sourceCounts.get(key)>1) {
+      supported++;
+      archive.files.push(unavailableSource(file,'Multiple files match this optional source. Select one copy to analyze it; no files were combined.'));
+      continue;
+    }
     if (known && seen.has(key)) throw new Error(`Duplicate supported source ${file.name}. Import only one copy of each source.`);
     if (known) { seen.add(key); supported++; }
-    let records;
-    try { records = key === 'searchqueries.csv' ? linkedInSearchRecords(file.text) : csvRecords(file.text); }
-    catch (error) {
-      if (known) throw new Error(`${file.name}: ${error.message}`);
-      else {
-        let headers = [];
-        try { headers = csvRecords(file.text.split(/\r\n|\n|\r/, 1)[0])[0]?.cells ?? []; } catch {}
-        archive.files.push({ name: file.name, headers, count: null, status: 'unsupported', issues: [`Could not parse this inventory-only file: ${error.message} Record count unavailable.`] });
-        continue;
+    let records, headers, metadata;
+    try {
+      try { records = key === 'searchqueries.csv' ? linkedInSearchRecords(file.text) : csvRecords(file.text); }
+      catch (error) {
+        if (known) throw new Error(`${file.name}: ${error.message}`);
+        else {
+          let headers = [];
+          try { headers = csvRecords(file.text.split(/\r\n|\n|\r/, 1)[0])[0]?.cells ?? []; } catch {}
+          archive.files.push({ name: file.name, headers, count: null, status: 'unsupported', issues: [`Could not parse this inventory-only file: ${error.message} Record count unavailable.`] });
+          continue;
+        }
       }
-    }
-    records = records.filter(record => nonempty(record.cells));
-    if (key === 'connections.csv') {
-      const start = records.findIndex(record => record.cells[0] === 'First Name' && record.cells.includes('Connected On'));
-      if (start < 0) throw new Error(`${file.name}: Cannot find the First Name / Connected On header. Select an original Connections.csv export.`);
-      records = records.slice(start);
-    }
-    const headers = records.shift()?.cells ?? [];
-    if (known) {
-      const missing = schemas[key].filter(header => !headers.includes(header));
-      if (!headers.length || !headers.some(Boolean) || missing.length) throw new Error(`${file.name}: Missing required headers${missing.length ? `: ${missing.join(', ')}` : ''}. Use an original LinkedIn CSV export.`);
-      if (key !== 'ad_targeting.csv' && new Set(headers.filter(Boolean)).size !== headers.filter(Boolean).length) throw new Error(`${file.name}: Repeated column headers are ambiguous for this source.`);
-    }
-    const metadata = { name: file.name, headers, count: records.length, status: known ? 'ready' : 'unsupported', issues: [] };
-    const extras = [];
-    let reconstructed = 0, literalCommas = 0;
-    if (records.some(record => record.searchRaw)) metadata.issues.push('LinkedIn raw search format: query text after each timestamp is preserved verbatim, including quote marks.');
-    const continuations = records.reduce((sum, record) => sum + (record.continuations || 0), 0);
-    if (continuations) metadata.issues.push(`${continuations} physical lines without a timestamp retained as query continuations; inspect source coverage.`);
-    for (const record of records) {
-      const row = record.cells;
-      if (record.searchRaw && row[1].includes(',')) {
-        extras.push({ row: record.line, literalCommas: row[1].split(',').length - 1 });
-        literalCommas++;
+      records = records.filter(record => nonempty(record.cells));
+      if (key === 'connections.csv') {
+        const start = records.findIndex(record => record.cells[0] === 'First Name' && record.cells.includes('Connected On'));
+        if (start < 0) throw new Error(`${file.name}: Cannot find the First Name / Connected On header. Select an original Connections.csv export.`);
+        records = records.slice(start);
       }
-      if (row.length === headers.length) continue;
-      if (key === 'searchqueries.csv' && headers.length === 2 && headers[0] === 'Time' && headers[1] === 'Search Query' && row.length > 2 && parseDate(row[0])) {
-        extras.push({ row: record.line, extraCells: row.length - headers.length });
-        record.cells = [row[0], record.raw.slice(record.delimiter + 1)];
-        reconstructed++;
-      } else if (key === 'learning.csv' && headers.at(-1) === '' && row.length === headers.length - 1) {
-        record.cells = [...row, ''];
-      } else if (!known) metadata.issues.push(`Record on line ${record.line} has ${row.length} cells; expected ${headers.length}. Inventoried without analysis.`);
-      else throw new Error(`${file.name}: Record on line ${record.line} has ${row.length} cells; expected ${headers.length}. Check missing quotes or delimiters.`);
+      headers = records.shift()?.cells ?? [];
+      if (known) {
+        const missing = schemas[key].filter(header => !headers.includes(header));
+        if (!headers.length || !headers.some(Boolean) || missing.length) throw new Error(`${file.name}: Missing required headers${missing.length ? `: ${missing.join(', ')}` : ''}. Use an original LinkedIn CSV export.`);
+        if (key !== 'ad_targeting.csv' && new Set(headers.filter(Boolean)).size !== headers.filter(Boolean).length) throw new Error(`${file.name}: Repeated column headers are ambiguous for this source.`);
+      }
+      metadata = { name: file.name, headers, count: records.length, status: known ? 'ready' : 'unsupported', issues: [] };
+      const extras = [];
+      let reconstructed = 0, literalCommas = 0;
+      if (records.some(record => record.searchRaw)) metadata.issues.push('LinkedIn raw search format: query text after each timestamp is preserved verbatim, including quote marks.');
+      const continuations = records.reduce((sum, record) => sum + (record.continuations || 0), 0);
+      if (continuations) metadata.issues.push(`${continuations} physical lines without a timestamp retained as query continuations; inspect source coverage.`);
+      for (const record of records) {
+        const row = record.cells;
+        if (record.searchRaw && row[1].includes(',')) {
+          extras.push({ row: record.line, literalCommas: row[1].split(',').length - 1 });
+          literalCommas++;
+        }
+        if (row.length === headers.length) continue;
+        if (key === 'searchqueries.csv' && headers.length === 2 && headers[0] === 'Time' && headers[1] === 'Search Query' && row.length > 2 && parseDate(row[0])) {
+          extras.push({ row: record.line, extraCells: row.length - headers.length });
+          record.cells = [row[0], record.raw.slice(record.delimiter + 1)];
+          reconstructed++;
+        } else if (key === 'learning.csv' && headers.at(-1) === '' && row.length === headers.length - 1) {
+          record.cells = [...row, ''];
+        } else if (!known) metadata.issues.push(`Record on line ${record.line} has ${row.length} cells; expected ${headers.length}. Inventoried without analysis.`);
+        else throw new Error(`${file.name}: Record on line ${record.line} has ${row.length} cells; expected ${headers.length}. Check missing quotes or delimiters.`);
+      }
+      if (reconstructed) {
+        metadata.issues.push(`${reconstructed} search queries reconstructed from extra comma-separated fields`);
+      }
+      if (literalCommas) metadata.issues.push(`${literalCommas} search queries contain literal commas; preserved as query text`);
+      if (extras.length) metadata.extras = extras;
+    } catch (error) {
+      if (!optionalSources.has(key)) throw error;
+      archive.files.push(unavailableSource(file,error.message));
+      continue;
     }
-    if (reconstructed) {
-      metadata.issues.push(`${reconstructed} search queries reconstructed from extra comma-separated fields`);
-    }
-    if (literalCommas) metadata.issues.push(`${literalCommas} search queries contain literal commas; preserved as query text`);
-    if (extras.length) metadata.extras = extras;
     const indexes = new Map(headers.map((header, index) => [header, index]));
     const get = (row, header) => row[indexes.get(header)] ?? '';
     let invalid = 0, missing = 0, invalidCompletion = 0;

@@ -10,12 +10,32 @@ const savedHeader='Saved Date,Job Url,Job Title,Company Name';
 const appHeader='Company Name,Job Title,Job Url,Application Date';
 const connectionHeader='First Name,Last Name,Company,Position,URL,Connected On';
 const learningHeader='Content Title,Content Type,Content Last Watched Date (if viewed),Content Completed At (if completed)';
-test('numeric source aliases import under one identity and reject duplicate aliases',()=>{
+test('numeric source aliases import under one identity and exclude every ambiguous duplicate',()=>{
   const a=buildArchive([file('nested/Reactions_123.csv',reactionHeader+'\n2024-02-29 10:00:00,LIKE,https://example.com/post')]);
   assert.equal(a.reactions[0].date,'2024-02-29');assert.equal(sourceFile(a,'reactions').name,'nested/Reactions_123.csv');
-  assert.throws(()=>buildArchive([file('Reactions_123.csv',reactionHeader),file('Reactions.csv',reactionHeader)]),/Duplicate supported source/);
-  assert.throws(()=>buildArchive([file('Reactions_123.csv',reactionHeader),file('Reactions_456.csv',reactionHeader)]),/Duplicate supported source/);
+  for(const other of ['Reactions.csv','Reactions_456.csv']) {
+    const archive=buildArchive([file('Connections.csv',connectionHeader+'\nA,B,Example,Role,,2024-01-02'),file('Reactions_123.csv',reactionHeader+'\n2024-01-02,LIKE,'),file(other,reactionHeader+'\n2024-01-03,LIKE,')]);
+    assert.equal(archive.connections.length,1);assert.deepEqual(archive.reactions,[]);
+    const excluded=archive.files.filter(source=>source.name!=='Connections.csv');
+    assert.equal(excluded.length,2);for(const source of excluded){assert.equal(source.status,'unsupported');assert.match(source.issues.join(' '),/Multiple files.*not analyzed/)}
+    const deep=buildDeepInsights(archive);assert.equal(deep.reactions.state,'unavailable');assert.equal(deep.unavailableSources.length,2);assert.equal(deep.calendar.rows.some(row=>row.key==='reactions'),false);
+  }
   assert.throws(()=>buildArchive([file('Reactions_nope.csv',reactionHeader)]),/No supported/);
+});
+test('malformed optional sources leave usable core records intact and exclude the whole bad file',()=>{
+  const connection=file('Connections.csv',connectionHeader+'\nA,B,Example,Role,,2024-01-02');
+  for(const bad of [file('Shares.csv',shareHeader+'\n2024-01-01,,valid,https://example.com,,PUBLIC\n2024-01-02,,unquoted,comma,https://example.com,,PUBLIC'),file('Shares.csv',shareHeader+'\n2024-01-02,,"unfinished'),file('Saved Jobs.csv','Saved Date,Job Url,Job Title,Employer\n2024-01-02,https://example.com,Role,Example'),file('Reactions.csv','Date,Type,Type\n2024-01-02,LIKE,LIKE')]) {
+    const archive=buildArchive([connection,bad]);assert.equal(archive.connections.length,1);
+    const source=archive.files.find(source=>source.name===bad.name);assert.equal(source.status,'unsupported');assert.match(source.issues.join(' '),/not analyzed/);
+    const deep=buildDeepInsights(archive);assert.equal(deep.unavailableSources.length,1);assert.equal(deep.findings.some(finding=>finding.source===bad.name),false);assert.equal(deep.calendar.rows.some(row=>row.source===bad.name),false);
+    for(const key of ['shares','savedJobs','reactions'])assert.equal(archive[key].length,0);
+  }
+  assert.throws(()=>buildArchive([connection,file('Skills.csv','Name\n"unfinished')]),/Unclosed/);
+  assert.throws(()=>buildArchive([connection,connection]),/Duplicate supported source/);
+});
+test('an all-unavailable optional import retains diagnostics without presenting an empty source',()=>{
+  const archive=buildArchive([file('Shares.csv','Wrong,Header\na,b')]),deep=buildDeepInsights(archive);
+  assert.equal(deep.shares.state,'unavailable');assert.equal(deep.shares.source,null);assert.equal(deep.shares.unavailableSource.name,'Shares.csv');assert.deepEqual(deep.findings,[]);assert.deepEqual(deep.calendar.rows,[]);assert.equal(deep.unavailableSources.length,1);
 });
 test('all new source rows preserve evidence and date axes',()=>{
   const files=[file('Saved Jobs.csv',savedHeader+'\n2024-01-02,https://example.com/job,Engineer,Example'),file('Company Follows.csv','Organization,Followed On\nExample,Fri Jun 07 10:00:00 UTC 2024'),file('Shares_123.csv',shareHeader+'\n2024-01-02 10:00:00,https://example.com/post,Literal commentary,https://news.example.com/x,,PUBLIC'),file('Votes_123.csv','Date,Link,OptionText\n2024-01-02 10:00:00,https://example.com/poll,Option A'),file('Member_Follows_123.csv','Date,Status,FullName\n2024-01-02 10:00:00,FOLLOW,Sample Person'),file('Endorsement_Received_Info.csv','Endorsement Date,Skill Name,Endorser First Name,Endorser Last Name,Endorser Public Url,Endorsement Status\n2024/01/02 10:00:00 UTC,JavaScript,Sample,Person,https://example.com/person,ACCEPTED'),file('Endorsement_Given_Info.csv','Endorsement Date,Skill Name,Endorsee First Name,Endorsee Last Name,Endorsee Public Url,Endorsement Status\n2024/01/02 10:00:00 UTC,Design,Sample,Person,https://example.com/person,PENDING')];

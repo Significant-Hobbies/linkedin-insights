@@ -19,9 +19,10 @@ export function activityPattern(rows) {
   return {activeDays:dates.length, datedRecords:rows.filter(row=>row.date).length, longestStreak:streak, months, peaks:months.filter(month=>month.count===months[0]?.count)};
 }
 export function sourceDomain(archive, key, year='all', dateKey='date') {
-  const original = archive[key] || [], all = dateKey === 'date' ? original : original.map(row=>({...row,originalDate:row.date,date:row[dateKey] || null}));
-  const rows = filterYear(all,year), source = sourceFile(archive,key) ?? null;
-  return {key,source,rows,total:all.length,count:rows.length,full:coverage(all),selected:coverage(rows),pattern:activityPattern(rows),state:!source?'absent':!all.length?'empty':!rows.length?'selection-empty':'ready'};
+  const metadata = sourceFile(archive,key) ?? null, unavailableSource = metadata?.status==='unsupported'?metadata:null, source = unavailableSource?null:metadata;
+  const original = unavailableSource?[]:archive[key] || [], all = dateKey === 'date' ? original : original.map(row=>({...row,originalDate:row.date,date:row[dateKey] || null}));
+  const rows = filterYear(all,year);
+  return {key,source,unavailableSource,rows,total:all.length,count:rows.length,full:coverage(all),selected:coverage(rows),pattern:activityPattern(rows),state:unavailableSource?'unavailable':!source?'absent':!all.length?'empty':!rows.length?'selection-empty':'ready'};
 }
 function groups(rows,key) {
   const values = stableGroups(rows,key), labelled = total(values);
@@ -53,6 +54,7 @@ export function sourceCalendar(domains,year='all') {
 }
 export function buildDeepInsights(archive,year='all') {
   const domains = Object.fromEntries(datedSourceKeys.map(key=>[key,sourceDomain(archive,key,year)]));
+  const unavailableSources = archive.files.filter(file=>file.analysisUnavailable || Object.values(domains).some(domain=>domain.unavailableSource===file));
   const invitations = domains.invitations;
   invitations.mix = {incoming:0,outgoing:0,unknown:0};
   for(const row of invitations.rows) {
@@ -112,5 +114,5 @@ export function buildDeepInsights(archive,year='all') {
   if(follows.source && follows.companies.values.length) add('Companies you follow',`${follows.companies.values.length} exact company labels appear in ${follows.companies.labelled} selected follow records. Compare the labels with your network and applications below.`,'signal-career',follows.source);
   const streaks = Object.values(domains).filter(domain=>domain.source && domain.pattern.longestStreak).sort((a,b)=>b.pattern.longestStreak.days-a.pattern.longestStreak.days || a.key.localeCompare(b.key));
   if(streaks.length) { const domain=streaks[0],streak=domain.pattern.longestStreak; add('A recorded daily streak',`${sourceNames[domain.key]} contains records on ${streak.days} consecutive calendar ${streak.days===1?'day':'days'}, ${streak.first} to ${streak.last}. This is an observed record pattern, not time spent.`,'signal-calendar',domain.source); }
-  return {domains,calendar:sourceCalendar(domains,year),invitations,saved,follows,reactions,shares,received,given,skillOverlap,learning,messaging,findings};
+  return {domains,unavailableSources,calendar:sourceCalendar(domains,year),invitations,saved,follows,reactions,shares,received,given,skillOverlap,learning,messaging,findings};
 }
