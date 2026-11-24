@@ -138,7 +138,11 @@ try{
   loaded=false;await page.getByRole('button',{name:'Clear archive',exact:true}).click();assert.equal(await page.locator('.stats').count(),0);assert.equal(await page.locator('.public-footer').count(),1);
   const reloadResponse=await page.reload();if(live)await verifyPublicDocument(reloadResponse,200);assert.equal(await page.locator('.stats').count(),0);assert.equal(await page.getByRole('button',{name:'Open export folder',exact:true}).count(),1);
   for(const route of ['/privacy/','/guide/']){const response=await page.goto(base+route);assert.equal(response.status(),200);if(live)await verifyPublicDocument(response,200);assert.ok(await page.locator('h1').innerText())}
-  if(live)await verifyPublicDocument(await page.goto(base+'/__archive-qa-missing-document__'),404);
+  if(live){
+    for(const route of ['/__archive-qa-missing-document__','/app-000000000000.js','/fonts/synthetic-missing.woff2']){
+      await verifyPublicDocument(await page.goto(base+route),404);
+    }
+  }
   assert.deepEqual(errors,[]);
   await writeFile(path.join(out,'verification.json'),JSON.stringify({base,layouts,sidebarPinned:true,insightsLanding:true,keyboardEvidenceNavigation:true,mobileSectionFocus:true,computedInsights:true,yearFiltering:true,exactCompanyDrilldown:true,missingAndEmptySources:true,deeperSourceInsights:true,completionDateCohorts:true,numericSuffixSources:true,calendarEvidence:true,optionalSourceIsolation:true,sharedDomainEligibility:true,folderImport:true,failedImportPreservesData:true,clearAndReloadStartEmpty:true,storedRecords:0,requestsAfterImport,errors},null,2));
   console.log(JSON.stringify({base,layouts:layouts.length,sidebarPinned:true,insightsLanding:true,keyboardEvidenceNavigation:true,mobileSectionFocus:true,computedInsights:true,yearFiltering:true,exactCompanyDrilldown:true,missingAndEmptySources:true,deeperSourceInsights:true,completionDateCohorts:true,numericSuffixSources:true,calendarEvidence:true,optionalSourceIsolation:true,sharedDomainEligibility:true,folderImport:true,requestsAfterImport:0,storedRecords:0,errors:0}));

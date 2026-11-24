@@ -39,10 +39,11 @@ test('a fresh build excludes stale output and inventories only current release a
   await assert.rejects(access('dist/stale-synthetic-export.txt'));
   const headers=await readFile('dist/_headers','utf8');
   assert.match(headers,/^\/\*\n  Cache-Control: public, max-age=0, must-revalidate, no-transform$/m);
-  for(const pattern of ['/app-*','/fonts/*']){
-    assert.ok(headers.includes(`${pattern}\n  ! Cache-Control\n  Cache-Control: public, max-age=31536000, immutable\n`), `${pattern} should keep its immutable cache directive.`);
-  }
   const manifest=JSON.parse(await readFile('dist/release-manifest.json','utf8'));
+  const expectedImmutable=manifest.files.map(file=>file.path)
+    .filter(name=>/^(?:app-[a-f0-9]{12}\.(?:js|css)|fonts\/[a-z0-9-]+\.woff2)$/.test(name));
+  const actualImmutable=[...headers.matchAll(/^\/([^\n]+)\n  ! Cache-Control\n  Cache-Control: public, max-age=31536000, immutable$/gm)].map(match=>match[1]);
+  assert.deepEqual(actualImmutable.sort(),expectedImmutable.sort());
   assert.equal(manifest.source,execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim());
   assert.equal(manifest.files.filter(f=>/^app-.*\.js$/.test(f.path)).length,1);
   assert.equal(manifest.files.filter(f=>/^app-.*\.css$/.test(f.path)).length,1);
