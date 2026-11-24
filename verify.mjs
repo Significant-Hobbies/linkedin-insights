@@ -38,9 +38,17 @@ const context=await browser.newContext();const page=await context.newPage();
 const errors=[],requestsAfterImport=[];let loaded=false;
 page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(loaded)requestsAfterImport.push(r.url())});
 async function choose(section){if(await page.locator('#mobile-section').isVisible())await page.locator('#mobile-section').selectOption(section);else await page.locator('nav[aria-label="Archive sections"] button').filter({hasText:{overview:'Insights',network:'Network',messages:'Messages',jobs:'Applications',activity:'Activity',profile:'Profile & targeting',sources:'Data sources'}[section]}).click()}
+async function verifyPublicDocument(response,status){
+  assert.equal(response?.status(),status);
+  assert.match(response.headers()['cache-control']??'',/(?:^|,\s*)no-transform(?:,|$)/);
+  const scriptOrigins=await page.locator('script[src]').evaluateAll(scripts=>scripts.map(script=>new URL(script.src).origin));
+  assert.ok(scriptOrigins.every(origin=>origin===new URL(base).origin),'Published documents only load same-origin scripts.');
+}
 const layouts=[];
 try{
-  await page.goto(base);await page.evaluate(()=>document.fonts.ready);
+  const startResponse=await page.goto(base);
+  if(live)await verifyPublicDocument(startResponse,200);
+  await page.evaluate(()=>document.fonts.ready);
   assert.equal(await page.getByRole('button',{name:'Open export folder',exact:true}).count(),1);
   assert.equal(await page.locator('.stats').count(),0);
   assert.equal(await page.locator('input[webkitdirectory]').count(),1);
@@ -111,8 +119,9 @@ try{
   assert.equal(await page.evaluate(()=>localStorage.length),0);assert.equal(await page.evaluate(async()=>('databases'in indexedDB?(await indexedDB.databases()).length:0)),0);
   await page.locator('input[accept]').setInputFiles({name:'Reactions_456.csv',mimeType:'text/csv',buffer:Buffer.from('Date,Type,Link\n2021-02-01,LIKE,\n2021-02-03,LIKE,')});await page.getByRole('status').filter({hasText:'Loaded 1 CSV files'}).waitFor();assert.match(await page.locator('.signal-findings').innerText(),/LIKE.*2 of 2/s);await page.getByLabel('Time period').selectOption('2021');await page.locator('#signal-calendar').getByText('Compare monthly source records',{exact:true}).click();assert.match(await page.locator('#signal-calendar').innerText(),/Reactions.csv/);assert.equal(await page.locator('#signal-career').count(),0);
   loaded=false;await page.getByRole('button',{name:'Clear archive',exact:true}).click();assert.equal(await page.locator('.stats').count(),0);assert.equal(await page.locator('.public-footer').count(),1);
-  await page.reload();assert.equal(await page.locator('.stats').count(),0);assert.equal(await page.getByRole('button',{name:'Open export folder',exact:true}).count(),1);
-  for(const route of ['/privacy/','/guide/']){const response=await page.goto(base+route);assert.equal(response.status(),200);assert.ok(await page.locator('h1').innerText())}
+  const reloadResponse=await page.reload();if(live)await verifyPublicDocument(reloadResponse,200);assert.equal(await page.locator('.stats').count(),0);assert.equal(await page.getByRole('button',{name:'Open export folder',exact:true}).count(),1);
+  for(const route of ['/privacy/','/guide/']){const response=await page.goto(base+route);assert.equal(response.status(),200);if(live)await verifyPublicDocument(response,200);assert.ok(await page.locator('h1').innerText())}
+  if(live)await verifyPublicDocument(await page.goto(base+'/__archive-qa-missing-document__'),404);
   assert.deepEqual(errors,[]);
   await writeFile(path.join(out,'verification.json'),JSON.stringify({base,layouts,sidebarPinned:true,insightsLanding:true,keyboardEvidenceNavigation:true,mobileSectionFocus:true,computedInsights:true,yearFiltering:true,exactCompanyDrilldown:true,missingAndEmptySources:true,deeperSourceInsights:true,completionDateCohorts:true,numericSuffixSources:true,calendarEvidence:true,optionalSourceIsolation:true,sharedDomainEligibility:true,folderImport:true,failedImportPreservesData:true,clearAndReloadStartEmpty:true,storedRecords:0,requestsAfterImport,errors},null,2));
   console.log(JSON.stringify({base,layouts:layouts.length,sidebarPinned:true,insightsLanding:true,keyboardEvidenceNavigation:true,mobileSectionFocus:true,computedInsights:true,yearFiltering:true,exactCompanyDrilldown:true,missingAndEmptySources:true,deeperSourceInsights:true,completionDateCohorts:true,numericSuffixSources:true,calendarEvidence:true,optionalSourceIsolation:true,sharedDomainEligibility:true,folderImport:true,requestsAfterImport:0,storedRecords:0,errors:0}));

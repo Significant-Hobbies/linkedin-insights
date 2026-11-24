@@ -36,6 +36,11 @@ test('a fresh build excludes stale output and inventories only current release a
   await writeFile('dist/stale-synthetic-export.txt','SYNTHETIC_UNPUBLISHABLE_SENTINEL');
   execFileSync(process.execPath,['build.mjs']);
   await assert.rejects(access('dist/stale-synthetic-export.txt'));
+  const headers=await readFile('dist/_headers','utf8');
+  assert.match(headers,/^\/\*\n  Cache-Control: public, max-age=0, must-revalidate, no-transform$/m);
+  for(const pattern of ['/app-*','/fonts/*']){
+    assert.ok(headers.includes(`${pattern}\n  ! Cache-Control\n  Cache-Control: public, max-age=31536000, immutable\n`), `${pattern} should keep its immutable cache directive.`);
+  }
   const manifest=JSON.parse(await readFile('dist/release-manifest.json','utf8'));
   assert.equal(manifest.source,execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim());
   assert.equal(manifest.files.filter(f=>/^app-.*\.js$/.test(f.path)).length,1);
