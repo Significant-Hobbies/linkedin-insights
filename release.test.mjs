@@ -11,6 +11,7 @@ test('public build has no export input path and its initial application state is
   assert.doesNotMatch(build,/readFile\([^\n]*\.csv/);
   assert.match(build,/connect-src 'none'/);
   assert.match(build,/script-src 'self'/);
+  assert.match(build,/Cache-Control: public, max-age=0, must-revalidate, no-transform/);
   assert.match(app,/generation\.current\+\+;setArchive\(null\)/);
 });
 test('release artifact rejects source mismatch, changed bytes, and unlisted stale files',async()=>{

@@ -40,15 +40,32 @@ page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(loaded)r
 async function choose(section){if(await page.locator('#mobile-section').isVisible())await page.locator('#mobile-section').selectOption(section);else await page.locator('nav[aria-label="Archive sections"] button').filter({hasText:{overview:'Insights',network:'Network',messages:'Messages',jobs:'Applications',activity:'Activity',profile:'Profile & targeting',sources:'Data sources'}[section]}).click()}
 async function verifyPublicDocument(response,status){
   assert.equal(response?.status(),status);
-  assert.match(response.headers()['cache-control']??'',/(?:^|,\s*)no-transform(?:,|$)/);
-  const scriptOrigins=await page.locator('script[src]').evaluateAll(scripts=>scripts.map(script=>new URL(script.src).origin));
-  assert.ok(scriptOrigins.every(origin=>origin===new URL(base).origin),'Published documents only load same-origin scripts.');
+  assert.equal(response.headers()['cache-control'],'public, max-age=0, must-revalidate, no-transform');
+  const scripts=await page.locator('script').evaluateAll(elements=>elements.map(script=>script.getAttribute('src')));
+  if(new URL(response.url()).pathname==='/'){
+    assert.equal(scripts.length,1);
+    assert.match(scripts[0]??'',/^\/app-[a-f0-9]{12}\.js$/);
+  }else{
+    assert.deepEqual(scripts,[]);
+  }
+}
+async function verifyPublicAssetCaching(){
+  const assets=await page.evaluate(()=>performance.getEntriesByType('resource').map(entry=>new URL(entry.name))
+    .filter(url=>url.origin===location.origin&&/^\/(?:app-[a-f0-9]{12}\.(?:js|css)|fonts\/[a-z0-9-]+\.woff2)$/.test(url.pathname))
+    .map(url=>url.pathname));
+  for(const type of ['.css','.js','.woff2'])assert.ok(assets.some(asset=>asset.endsWith(type)),`No loaded ${type} asset verified.`);
+  await Promise.all(assets.map(async asset=>{
+    const response=await page.request.head(base+asset);
+    assert.equal(response.status(),200,asset);
+    assert.equal(response.headers()['cache-control'],'public, max-age=31536000, immutable',asset);
+  }));
 }
 const layouts=[];
 try{
   const startResponse=await page.goto(base);
   if(live)await verifyPublicDocument(startResponse,200);
   await page.evaluate(()=>document.fonts.ready);
+  if(live)await verifyPublicAssetCaching();
   assert.equal(await page.getByRole('button',{name:'Open export folder',exact:true}).count(),1);
   assert.equal(await page.locator('.stats').count(),0);
   assert.equal(await page.locator('input[webkitdirectory]').count(),1);
